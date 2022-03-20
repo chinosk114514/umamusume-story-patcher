@@ -2,6 +2,18 @@
 
 *Now works with the latest version of UnityPy*
 
+
+
+## Modified
+
+- Add `hash calc` for **[umamusume-localify](https://github.com/chinosk114514/umamusume-localify)**
+
+- Add `json` output
+- **`cppy_gb.pyd` in the folder only works in `windows - Python 3.8`. **
+  - If you want to work in other python version, see **[pybind11](https://github.com/pybind/pybind11)** and compile `hash_calc` yourself or download `.exe` from [Release](https://github.com/chinosk114514/umamusume-story-patcher/releases).
+
+
+
 ## How to use
 
 * Go to your umamusume folder, usually  

@@ -1,8 +1,10 @@
 import sqlite3
 import os
 import csv
+import string
 import tkinter as tk
-
+import cppy_gb as uma_cvt_id
+import json
 from tkinter import ttk
 from shutil import copyfile
 
@@ -14,6 +16,8 @@ master_conn.row_factory = sqlite3.Row
 m_c = meta_conn.cursor()
 mdb_c = master_conn.cursor()
 
+clcr = uma_cvt_id.UmamusumeTextHashCalc()
+
 folders = ['translations', 'backup', 'extracted']
 for folder in folders:
     try:
@@ -22,7 +26,141 @@ for folder in folders:
         pass
 
 
+def getlen(s):
+    if type(s) == str:
+        base_len = len(s)
+        for i in s:
+            if i in string.ascii_letters:
+                base_len -= 0.5
+        return base_len
+    else:
+        return len(s)
+
+
+def move_end_to_next_line(strlist: list, starts_line=0, lm=21):
+    rets = strlist.copy()
+    for n in range(getlen(rets) - 1):
+        if n < starts_line:
+            continue
+        while getlen(rets[n]) > lm:
+            rets[n + 1] = rets[n][-1] + rets[n + 1]
+            rets[n] = rets[n][:-1]
+    if getlen(rets[-1]) > lm:
+        rets.append(rets[-1][lm:])
+        rets[-1] = rets[-1][:lm]
+    return rets
+
+
+class StoryOutputJson:
+    def __init__(self):
+        self.rets = {}
+        self.error_count = 0
+
+    def add_data(self, linestr: str):  # TODO
+        pt_text = linestr.replace('\r\n', '\n').replace('\\n', '\n')
+        pt_text2 = pt_text.replace("？\n", "？　\n").replace("！\n", "！　\n")
+        pt_text2 = pt_text2.replace('\r', '').replace('\n', '')
+        try:
+            # hid = uma_cvt_id.UmamusumeTextHashCalc(pt_text.encode("gbk")).calc()
+            hid = clcr.calc(pt_text)
+            # t2 = vertical_cvt(line['text'])
+            # if line['Text'].startswith("えへへ、い"):
+            #     print(line['Text'])
+            # hid2 = uma_cvt_id.UmamusumeTextHashCalc(pt_text2.encode("gbk")).calc()
+            hid2 = clcr.calc(pt_text2)
+        except Exception as e:
+            print(f"计算出错: {linestr}", e)
+            hid = f"Error{self.error_count}"
+            hid2 = f"Error{self.error_count + 1}"
+            self.error_count += 2
+        self.rets[hid] = pt_text
+        self.rets[hid2] = pt_text2
+
+    def get_out_str(self):
+        return json.dumps(self.rets, ensure_ascii=False, indent=4)
+
+
+def get_line_breaking_data():
+    if os.path.isfile("LineBreaking_Following_Characters.txt"):  # 行首禁止. 带字换行
+        with open("LineBreaking_Following_Characters.txt", "r", encoding="utf8") as f:
+            sp_symbol = f.read()
+    else:
+        sp_symbol = ")]｝〕〉》」』】〙〗〟’”｠»ヽヾーァィゥェォッャュョヮヵヶぁぃぅぇぉっゃゅょゎゕゖㇰㇱㇲㇳㇴㇵㇶㇷㇸㇹㇺㇻㇼㇽㇾㇿ々" \
+                    "〻‐゠–〜?!‼⁇⁈⁉・、%,.:;。！？］）：；＝}¢°\"†‡℃〆％，．"
+        with open("LineBreaking_Following_Characters.txt", "w", encoding="utf8") as f:
+            f.write(sp_symbol)
+
+    if os.path.isfile("LineBreaking_Leading_Characters.txt"):  # 行尾禁止, 仅换行
+        with open("LineBreaking_Leading_Characters.txt", "r", encoding="utf8") as f:
+            ep_symbol = f.read()
+    else:
+        ep_symbol = "([｛〔〈《「『【〘〖〝‘“｟«$—…‥〳〴〵\\（［{£¥\"々〇〉》」＄｠￥￦ #"
+        with open("LineBreaking_Leading_Characters.txt", "w", encoding="utf8") as f:
+            f.write(ep_symbol)
+
+    return sp_symbol, ep_symbol
+
+
+def vertical_cvt(inputstr: str, lm=21):
+    sp_symbol, ep_symbol = get_line_breaking_data()
+    nsp_symbol = "！？"  # 句中需要空格
+
+    rp = inputstr.replace("\n", "")
+    rp = rp.replace("\r", "")
+    ps = [rp]
+
+    ips = getlen(rp) % lm
+    line_count = int(getlen(rp) / lm)
+    if ips != 0:
+        line_count += 1
+    # for count in range(line_count):
+    #     _s = rp[lm * count: lm * (count + 1)]
+    #     ps.append(_s)
+
+    for n in range(getlen(ps)):
+        if n + 1 <= getlen(ps) - 1:
+            while ps[n + 1][0] in sp_symbol:  # 禁止符号在句首
+                ps[n + 1] = ps[n][-1] + ps[n + 1]
+                ps[n] = ps[n][:-1]
+                ps = move_end_to_next_line(ps, starts_line=n + 1, lm=lm)
+
+        while ps[n][-1] in ep_symbol:  # 禁止符号在句尾
+            if n + 1 <= getlen(ps) - 1:
+                ps[n + 1] = ps[n][-1] + ps[n + 1]
+                ps[n] = ps[n][:-1]
+                ps = move_end_to_next_line(ps, starts_line=n + 1, lm=lm)
+            else:
+                ps.append(ps[n][-1])
+                ps[n] = ps[n][:-1]
+
+        for itm in nsp_symbol:
+            ps[n] = ps[n].replace(itm, f"{itm}　")
+            ps[n] = ps[n].replace(f"{itm}　　", f"{itm}　")
+            ps[n] = ps[n].replace("！　？　", "！？　").replace("？　！　", "？！　")
+            if ps[n][-1] == "　":
+                ps[n] = ps[n][:-1]
+        ps = move_end_to_next_line(ps, starts_line=0, lm=lm)
+
+        # for n in range(getlen(ps) - 1):
+        #     while getlen(ps[n]) > lm:  # 再次检查句子
+        #         ps[n + 1] = ps[n][-1] + ps[n + 1]
+        #         ps[n] = ps[n][:-1]
+
+        # while getlen(ps[-1]) > lm:
+        #     ps.append(ps[-1][lm:])
+        #     ps[-1] = ps[-1][:lm]
+
+    ret = ""
+    for i in ps:
+        # print(i, getlen(i))
+        ret += f"{i}\n"
+
+    print(ret)
+    return ret[:-1]
+
+
 def extract_storytimeline(dat, meta_path, save_path):
+    ot_json = StoryOutputJson()
     path = f'../../dat/{dat[:2]}/{dat}'
     backup = f'backup/{dat}'
     if os.path.exists(backup):
@@ -49,9 +187,29 @@ def extract_storytimeline(dat, meta_path, save_path):
             story.append(['Line', index])
             story.append(['Name', line['Name']])
             tmp_text = 'Text'
+
+            try:
+                # hid = uma_cvt_id.UmamusumeTextHashCalc(line['Text'].replace('\r\n', '\n').encode("gbk")).calc()
+                hid = clcr.calc(line['Text'].replace('\r\n', '\n'))
+                # t2 = vertical_cvt(line['Text'])
+                t2 = line['Text'].replace('\r\n', '\n')
+                # if line['Text'].startswith("えへへ、い"):
+                #     print(line['Text'])
+                # hid2 = uma_cvt_id.UmamusumeTextHashCalc(t2.replace("？\n", "？　\n").replace("！\n", "！　\n")
+                #                                         .replace('\r', '').replace('\n', '').encode("gbk")).calc()
+                hid2 = clcr.calc(t2.replace("？\n", "？　\n").replace("！\n", "！　\n")
+                                 .replace('\r', '').replace('\n', ''))
+            except Exception as e:
+                print(f"计算出错: {line['Text']}", e)
+                hid = "有特殊符号, 计算值出错"
+                hid2 = "有特殊符号, 计算值出错"
+
             for sub_line in line['Text'].split('\r\n'):
                 story.append([tmp_text, sub_line])
                 tmp_text = ''
+            story.append([f"横屏原文: ({hid})\n无换行符: ({hid2 if hid != hid2 else '同上'})"])
+            ot_json.add_data(line['Text'])  # 导出json
+
             for choice_index, choice in enumerate(line['ChoiceDataList']):
                 story.append([])
                 story.append(['Choice', index])
@@ -65,8 +223,20 @@ def extract_storytimeline(dat, meta_path, save_path):
             writer.writerows(story)
             print(f"Extracted {save_path.split('/')[-1]}")
 
+        _sp = save_path.split('/')
+        new_save_name = ""
+        for _path in _sp[:-2]:
+            new_save_name = f"{new_save_name}/{_path}"
+        new_save_name = new_save_name[1:]
+        if not os.path.isdir(f"{new_save_name}/{_sp[-2]}/out_json"):
+            os.makedirs(f"{new_save_name}/{_sp[-2]}/out_json")
+        new_save_name = f"{new_save_name}/{_sp[-2]}/out_json/{_sp[-1].replace('.csv', '.json')}"
+        with open(new_save_name, "w", encoding="utf8") as f:
+            f.write(ot_json.get_out_str())
+
 
 def extract_storyrace(dat, meta_path, save_path):
+    ot_json = StoryOutputJson()
     path = f'../../dat/{dat[:2]}/{dat}'
     backup = f'backup/{dat}'
     if os.path.exists(backup):
@@ -94,10 +264,42 @@ def extract_storyrace(dat, meta_path, save_path):
             for sub_line in line['text'].split('\\n'):
                 story.append([tmp_text, sub_line])
                 tmp_text = ''
+
+            try:
+                line['text'].replace('\\n', '\n')
+                # hid = uma_cvt_id.UmamusumeTextHashCalc(line['text'].replace('\r\n', '\n').encode("gbk")).calc()
+                hid = clcr.calc(line['text'].replace('\r\n', '\n'))
+                # t2 = vertical_cvt(line['text'])
+                t2 = line['text'].replace('\r\n', '\n')
+                # if line['Text'].startswith("えへへ、い"):
+                #     print(line['Text'])
+                # hid2 = uma_cvt_id.UmamusumeTextHashCalc(t2.replace("？\n", "？　\n").replace("！\n", "！　\n")
+                #                                         .replace('\r', '').replace('\n', '').encode("gbk")).calc()
+                hid2 = clcr.calc(t2.replace("？\n", "？　\n").replace("！\n", "！　\n")
+                                 .replace('\r', '').replace('\n', ''))
+            except Exception as e:
+                print(f"计算出错: {line['text']}", e)
+                hid = "有特殊符号, 计算值出错"
+                hid2 = "有特殊符号, 计算值出错"
+            story.append([f"横屏原文: ({hid})\n无换行符: ({hid2 if hid != hid2 else '同上'})"])
+            ot_json.add_data(line['text'])
+
         with open(save_path, 'w', encoding='utf-8', newline='') as f:
             writer = csv.writer(f)
             writer.writerows(story)
             print(f"Extracted {save_path.split('/')[-1]}")
+
+        _sp = save_path.split('/')
+        new_save_name = ""
+        for _path in _sp[:-2]:
+            new_save_name = f"{new_save_name}/{_path}"
+        new_save_name = new_save_name[1:]
+
+        if not os.path.isdir(f"{new_save_name}/{_sp[-2]}/out_json"):
+            os.makedirs(f"{new_save_name}/{_sp[-2]}/out_json")
+        new_save_name = f"{new_save_name}/{_sp[-2]}/out_json/{_sp[-1].replace('.csv', '.json')}"
+        with open(new_save_name, "w", encoding="utf8") as f:
+            f.write(ot_json.get_out_str())
 
 
 def extract_episode(data):
@@ -118,10 +320,12 @@ def extract_episode(data):
         meta_tl_id = '0' * (9 - len(str_tl_id)) + str_tl_id
         if ep.type == 1:
             meta_path, dat = m_c.execute(f"select n,h from a where n LIKE '%storytimeline_{meta_tl_id}'").fetchone()
-            extract_storytimeline(dat, meta_path, f"extracted/{data['story'].name}/{data['chapter'].id}.{data['chapter'].name}/{data['episode'].ep_num}.{data['episode'].name}.csv")
+            extract_storytimeline(dat, meta_path,
+                                  f"extracted/{data['story'].name}/{data['chapter'].id}.{data['chapter'].name}/{data['episode'].ep_num}.{data['episode'].name}.csv")
         if ep.type == 3:
             meta_path, dat = m_c.execute(f"select n,h from a where n LIKE '%storyrace_{meta_tl_id}'").fetchone()
-            extract_storyrace(dat, meta_path, f"extracted/{data['story'].name}/{data['chapter'].id}.{data['chapter'].name}/{data['episode'].ep_num}.{data['episode'].name}.csv")
+            extract_storyrace(dat, meta_path,
+                              f"extracted/{data['story'].name}/{data['chapter'].id}.{data['chapter'].name}/{data['episode'].ep_num}.{data['episode'].name}.csv")
         return
 
     for part in range(1, 6):
@@ -131,10 +335,12 @@ def extract_episode(data):
             meta_tl_id = '0' * (9 - len(str_tl_id)) + str_tl_id
             if part_type == 1:
                 meta_path, dat = m_c.execute(f"select n,h from a where n LIKE '%storytimeline_{meta_tl_id}'").fetchone()
-                extract_storytimeline(dat, meta_path, f"extracted/{data['story'].name}/{data['chapter'].id}.{data['chapter'].name}/{data['episode'].ep_num}.{data['episode'].name} part{part}.csv")
+                extract_storytimeline(dat, meta_path,
+                                      f"extracted/{data['story'].name}/{data['chapter'].id}.{data['chapter'].name}/{data['episode'].ep_num}.{data['episode'].name} part{part}.csv")
             if part_type == 3:
                 meta_path, dat = m_c.execute(f"select n,h from a where n LIKE '%storyrace_{meta_tl_id}'").fetchone()
-                extract_storyrace(dat, meta_path, f"extracted/{data['story'].name}/{data['chapter'].id}.{data['chapter'].name}/{data['episode'].ep_num}.{data['episode'].name} part{part}.csv")
+                extract_storyrace(dat, meta_path,
+                                  f"extracted/{data['story'].name}/{data['chapter'].id}.{data['chapter'].name}/{data['episode'].ep_num}.{data['episode'].name} part{part}.csv")
 
 
 def read_csv_timeline(slot, fp):
@@ -202,7 +408,8 @@ def patch_storytimeline(dat, story_data):
                         for choice in story_data[block].get('Choices', []):
                             try:
                                 choice_index = choice.get('Number') - 1
-                                tree['ChoiceDataList'][choice_index] = {**tree['ChoiceDataList'][choice_index], **choice}
+                                tree['ChoiceDataList'][choice_index] = {**tree['ChoiceDataList'][choice_index],
+                                                                        **choice}
                             except IndexError:
                                 pass
                         if len(story_data[block].get('Text', '')) > 120:
@@ -250,10 +457,12 @@ def patch_episode(data):
 class Story():
     def __init__(self, story_type):
         self.name = story_type.get('name')
-        chap_data = mdb_c.execute(f"Select [index], text from text_data where id = {story_type.get('id', '0')}").fetchall()
+        chap_data = mdb_c.execute(
+            f"Select [index], text from text_data where id = {story_type.get('id', '0')}").fetchall()
 
         ep_list = mdb_c.execute(f"Select * from {story_type.get('table')} {story_type.get('where', '')}").fetchall()
-        ep_names = mdb_c.execute(f"Select [index], text from text_data where id = {story_type.get('sub_id', '0')}").fetchall()
+        ep_names = mdb_c.execute(
+            f"Select [index], text from text_data where id = {story_type.get('sub_id', '0')}").fetchall()
 
         def find_ep(eps, key, val):
             for i, ep in enumerate(eps):
@@ -310,10 +519,9 @@ class Episode():
 
 
 def main():
-
     root = tk.Tk()
-    root.title('Uma Musume Story Patcher')
-    root.iconphoto(False, tk.PhotoImage(file='utx_ico_home_umamusume_12.png'))
+    root.title('Uma Musume Story Patcher - Modified by \'sunset')
+    # root.iconphoto(False, tk.PhotoImage(file='utx_ico_home_umamusume_12.png'))
     root.geometry('900x600')
     root.minsize(600, 400)
 
@@ -363,13 +571,18 @@ def main():
         return False
 
     story_types = [
-        {'id': 112, 'name': 'Main Story', 'sub_id': 94, 'table': 'main_story_data', 'where': 'where story_number != 0', 'id_key': 'id', 'chap_key': 'part_id'},
-        {'id': 189, 'name': 'Event Story', 'sub_id': 191, 'table': 'story_event_story_data', 'id_key': 'id', 'chap_key': 'story_event_id'},
-        {'id': 221, 'name': 'Extra Story', 'sub_id': 222, 'table': 'story_extra_story_data', 'id_key': 'id', 'chap_key': 'story_extra_id'},
-        {'id': 182, 'name': 'Chara Story', 'sub_id': 92, 'table': 'chara_story_data', 'id_key': 'story_id', 'chap_key': 'chara_id'},
-        {'id': 182, 'name': 'Training Chara Story', 'sub_id': 181, 'table': 'single_mode_story_data', 'where': 'where card_chara_id != 0', 'id_key': 'story_id', 'chap_key': 'card_chara_id'},
-        {'id': 182, 'name': 'Support Chara Story', 'sub_id': 181, 'table': 'single_mode_story_data', 'where': 'where support_chara_id != 0', 'id_key': 'story_id', 'chap_key': 'support_chara_id'},
-        {'id': 75, 'name': 'Support Card Story', 'sub_id': 181, 'table': 'single_mode_story_data', 'where': 'where support_card_id != 0', 'id_key': 'story_id', 'chap_key': 'support_card_id'},
+        {'id': 112, 'name': 'Main Story', 'sub_id': 94, 'table': 'main_story_data', 'where': 'where story_number != 0',
+         'id_key': 'id', 'chap_key': 'part_id'},
+        {'id': 189, 'name': 'Event Story', 'sub_id': 191, 'table': 'story_event_story_data', 'id_key': 'id',
+         'chap_key': 'story_event_id'},
+        {'id': 182, 'name': 'Chara Story', 'sub_id': 92, 'table': 'chara_story_data', 'id_key': 'story_id',
+         'chap_key': 'chara_id'},
+        {'id': 182, 'name': 'Training Chara Story', 'sub_id': 181, 'table': 'single_mode_story_data',
+         'where': 'where card_chara_id != 0', 'id_key': 'story_id', 'chap_key': 'card_chara_id'},
+        {'id': 182, 'name': 'Support Chara Story', 'sub_id': 181, 'table': 'single_mode_story_data',
+         'where': 'where support_chara_id != 0', 'id_key': 'story_id', 'chap_key': 'support_chara_id'},
+        {'id': 75, 'name': 'Support Card Story', 'sub_id': 181, 'table': 'single_mode_story_data',
+         'where': 'where support_card_id != 0', 'id_key': 'story_id', 'chap_key': 'support_card_id'},
     ]
     stories = [Story(story_type) for story_type in story_types]
 
@@ -511,7 +724,7 @@ def main():
             path = f'../../dat/{dat[:2]}/{dat}'
             backup = f'backup/{dat}'
             copyfile(backup, path)
-            os.remove(backup)
+            # os.remove(backup)
             print(f'restored {dat}')
             progress['value'] = ((i + 1) / length) * 100
             frame.update_idletasks()

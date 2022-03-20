@@ -1,3 +1,12 @@
-backup
-extracted
-translations
+﻿################################################################################
+# 此 .gitignore 文件已由 Microsoft(R) Visual Studio 自动创建。
+################################################################################
+
+/extracted
+/.vs
+/__pycache__
+/cppy_gb - 副本.pyd
+/LineBreaking_Following_Characters.txt
+/LineBreaking_Leading_Characters.txt
+/story_patcher_v3.0.exe
+/story_patcher_v2.5.exe
